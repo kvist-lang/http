@@ -1,0 +1,88 @@
+;; Copyright (c) Andreas Flakstad and Kvist contributors
+;; SPDX-License-Identifier: MIT
+
+(package client)
+(import h "../deps/odin-http")
+(import hc "../deps/odin-http/client")
+
+(defn new-request
+  "Create and initialize an HTTP client request for `method`.
+
+  The returned request owns vendor request state. Destroy it with
+  `client.request-destroy` after the request has completed."
+  [method: h.Method] -> hc.Request
+  (let [req (hc.Request {})]
+    (hc.request_init (addr req) method)
+    req))
+
+(defmacro with-request
+  "Evaluate `body` with a scoped HTTP client request binding.
+
+  `binding` must contain `[req method]`. The request is created with
+  `client.new-request` and destroyed with `defer` after the body exits."
+  [binding & body]
+  (let [req (first binding)
+        method (nth binding 1)]
+    `(let [~req (new-request ~method)]
+       (defer (request-destroy ~req))
+       ~@body)))
+
+(defmacro request
+  "Send initialized request `req` to `target`.
+
+  This lowers directly to the vendor client request call with the request passed
+  by address."
+  [req target]
+  `(hc.request (addr ~req) ~target))
+
+(defmacro get
+  "Send a simple HTTP GET request to `target`."
+  [target]
+  `(hc.get ~target))
+
+(defmacro with-json
+  "Attach JSON body `value` to request `req`.
+
+  The request is mutated in place through the vendor client package."
+  [req value]
+  `(hc.with_json (addr ~req) ~value))
+
+(defmacro request-destroy
+  "Destroy request state owned by `req`."
+  [req]
+  `(hc.request_destroy (addr ~req)))
+
+(defmacro set-header!
+  "Set request header `key` to `value` in place."
+  [req key value]
+  (quasiquote
+    (h.headers_set_unsafe (addr (unquote req).headers) (unquote key) (unquote value))))
+
+(defmacro add-cookie!
+  "Append a request cookie with `name` and `value`."
+  [req name value]
+  (quasiquote
+    (append
+      (addr (unquote req).cookies)
+      (h.Cookie {name: (unquote name) value: (unquote value)}))))
+
+(defmacro response-body
+  "Read the response body from `res`.
+
+  With no extra argument, the vendor default allocation mode is used. With one
+  extra argument, that allocation mode is passed through. Destroy allocated body
+  storage with `client.body-destroy` when required by the vendor API."
+  [res & rest]
+  (if (= (count rest) 0)
+    `(hc.response_body (addr ~res))
+    `(hc.response_body (addr ~res) ~(first rest))))
+
+(defmacro response-destroy
+  "Destroy response state owned by `res`."
+  [res]
+  `(hc.response_destroy (addr ~res)))
+
+(defmacro body-destroy
+  "Destroy a response body according to `allocation`."
+  [body allocation]
+  `(hc.body_destroy ~body ~allocation))

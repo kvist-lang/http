@@ -1,0 +1,13 @@
+;; Copyright (c) Andreas Flakstad and Kvist contributors
+;; SPDX-License-Identifier: MIT
+
+(package tests)
+(import t "kvist:test")
+(import http "..")
+
+(t.deftest constructs-router-and-server
+  (let [router (http.new-router)
+        server (http.new-server)]
+    (defer (http.router-destroy! router))
+    (http.server-shutdown-on-interrupt! server)
+    (t.is true)))
