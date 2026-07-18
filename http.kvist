@@ -9,6 +9,8 @@
 (def Request h.Request)
 (def Response h.Response)
 (def Handler h.Handler)
+(def Body-Error h.Body_Error)
+(def Body-Callback h.Body_Callback)
 
 (defn- respond-file-content-text [res: ^h.Response, path: string, content: string, status: h.Status = .OK]
   (h.respond_file_content res path (transmute []byte content) status))
@@ -100,6 +102,42 @@
   [handler req res]
   (quasiquote
     (handle-ptr (addr (unquote handler)) (unquote req) (unquote res))))
+
+(defmacro read-body!
+  "Read a request body asynchronously, bounded by `max-length` bytes.
+
+  `user-data` is passed unchanged to `callback`. The callback must have the
+  vendor-compatible shape `[rawptr string http.Body-Error]`. A request body can
+  only be consumed once."
+  [req max-length user-data callback]
+  (quasiquote
+    (h.body (unquote req) (unquote max-length) (unquote user-data) (unquote callback))))
+
+(defmacro on-body
+  "Define an asynchronous request-body callback.
+
+  `binding` must contain `[user-data body err]`. The generated procedure has
+  the exact vendor callback type and can be passed to `http.read-body!`."
+  [name binding & body]
+  (let [user-data (first binding)
+        body-binding (nth binding 1)
+        err (nth binding 2)
+        user-data-param (symbol (str (name user-data) ":"))
+        body-param (symbol (str (name body-binding) ":"))
+        err-param (symbol (str (name err) ":"))]
+    (quasiquote
+      (defn (unquote name)
+        [(unquote user-data-param) rawptr
+         (unquote body-param) string
+         (unquote err-param) h.Body_Error]
+        (do
+          (splice body))))))
+
+(defmacro body-error-status
+  "Return the appropriate HTTP status for a request-body read error."
+  [error]
+  (quasiquote
+    (h.body_error_status (unquote error))))
 
 (defmacro middleware
   "Create middleware around `next`.
