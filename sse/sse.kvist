@@ -3,14 +3,63 @@
 
 (package sse)
 (import h "../deps/odin-http")
+(import mem "core:mem")
 (import nbio "core:nbio")
 (import net "core:net")
 (import time "core:time")
+(import odin_strings "core:strings")
 
 (def Stream ^h.Sse)
 (def Timeout-Op ^nbio.Operation)
 (def Send-Error net.Send_Error)
 (def On-Error h.Sse_On_Error)
+
+(odin "
+Sse_Async_Event :: struct {
+    stream: ^h.Sse,
+    event: string,
+    data: string,
+    allocator: mem.Allocator,
+}
+
+sse_async_event_callback :: proc(_op: ^nbio.Operation, job: ^Sse_Async_Event) {
+    if job.stream.state != .Close {
+        h.sse_event(job.stream, h.Sse_Event{event = job.event, data = job.data})
+    }
+    delete(job.event, job.allocator)
+    delete(job.data, job.allocator)
+    free(job, job.allocator)
+}
+
+sse_event_async :: proc(stream: ^h.Sse, event, data: string) {
+    if stream == nil || stream.state == .Close {
+        return
+    }
+    allocator := stream.allocator
+    job := new(Sse_Async_Event, allocator)
+    job.stream = stream
+    job.allocator = allocator
+    event_copy, event_error := odin_strings.clone(event, allocator)
+    if event_error != nil {
+        free(job, allocator)
+        return
+    }
+    job.event = event_copy
+    data_copy, data_error := odin_strings.clone(data, allocator)
+    if data_error != nil {
+        delete(job.event, allocator)
+        free(job, allocator)
+        return
+    }
+    job.data = data_copy
+    _ = nbio.timeout_poly(
+        0,
+        job,
+        sse_async_event_callback,
+        stream.r._conn.owning_thread.event_loop,
+    )
+}
+")
 
 (defn- __kvist_http_sse_new_started [res: ^h.Response] -> ^h.Sse
   (let [stream (alloc h.Sse context.temp_allocator)]
@@ -132,6 +181,15 @@
   [stream event data]
   (quasiquote
     (h.sse_event (unquote stream) (h.Sse_Event { event: (unquote event) data: (unquote data) }))))
+
+(defmacro send-event-async!
+  "Queue a named SSE event onto the stream's owning event loop.
+
+  Use this when the caller may run on another HTTP worker. Event and data text
+  are cloned until the owning loop consumes them."
+  [stream event data]
+  (quasiquote
+    (sse-event-async (unquote stream) (unquote event) (unquote data))))
 
 (defmacro comment!
   "Send an SSE comment frame."

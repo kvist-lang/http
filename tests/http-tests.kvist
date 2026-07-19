@@ -4,6 +4,7 @@
 (package tests)
 (import t "kvist:test")
 (import http "..")
+(import sse "../sse")
 
 (t.deftest constructs-router-and-server
   (let [router (http.new-router)
@@ -12,5 +13,6 @@
     ;; Stateful embedded applications can deliberately serialize callbacks
     ;; through one event loop rather than inheriting the CPU-count default.
     (http.server-set-thread-count! (addr server) 1)
+    (sse.send-event-async! nil "test" "ignored")
     (http.server-shutdown-on-interrupt! server)
     (t.is true)))
