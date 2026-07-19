@@ -323,7 +323,17 @@ _server_thread_shutdown :: proc(s: ^Server, loc := #caller_location) {
 		for sock, conn in td.conns {
 			#partial switch conn.state {
 			case .Active:
-				log.debugf("shutdown: connection %i active, waiting for response send", sock)
+				// Event streams are intentionally unbounded responses. Waiting for
+				// them to finish makes graceful shutdown wait forever when a client
+				// has an open EventSource. Close those connections as part of the
+				// shutdown request; ordinary active responses remain graceful.
+				content_type, has_content_type := headers_get_unsafe(conn.loop.res.headers, "content-type")
+				if has_content_type && content_type == "text/event-stream" {
+					log.infof("shutdown: closing event stream connection %i", sock)
+					connection_close(conn)
+				} else {
+					log.debugf("shutdown: connection %i active, waiting for response send", sock)
+				}
 			case .New, .Idle, .Pending:
 				log.infof("shutdown: closing connection %i", sock)
 				connection_close(conn)
