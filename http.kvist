@@ -49,6 +49,12 @@
   [] -> h.Server
   (h.Server {}))
 
+(defn server-set-thread-count!
+  "Set the HTTP event-loop thread count before listen/serve starts. Stateful
+  local applications can select one until their state supports concurrency."
+  [server: ^h.Server, count: int]
+  (set! server^.opts.thread-count (max 1 count)))
+
 (defmacro server-shutdown-on-interrupt!
   "Arrange for `server` to shut down on process interrupt.
 

@@ -9,5 +9,8 @@
   (let [router (http.new-router)
         server (http.new-server)]
     (defer (http.router-destroy! router))
+    ;; Stateful embedded applications can deliberately serialize callbacks
+    ;; through one event loop rather than inheriting the CPU-count default.
+    (http.server-set-thread-count! (addr server) 1)
     (http.server-shutdown-on-interrupt! server)
     (t.is true)))
