@@ -8,7 +8,7 @@
   The returned request owns vendor request state. Destroy it with
   `client.request-destroy` after the request has completed."
   [method: h.Method] -> hc.Request
-  (let [req (hc.Request {})]
+  (let [req (hc.Request [])]
     (hc.request_init (addr req) method)
     req))
 
@@ -61,7 +61,7 @@
   (quasiquote
     (append
       (addr (unquote req).cookies)
-      (h.Cookie {name: (unquote name) value: (unquote value)}))))
+      (h.Cookie :name (unquote name) :value (unquote value)))))
 
 (defmacro response-body
   "Read the response body from `res`.

@@ -66,7 +66,7 @@ sse_event_async :: proc(stream: ^h.Sse, event, data: string) {
 
 (defn- __kvist_http_sse_new_started_on_error [res: ^h.Response, on-error: h.Sse_On_Error] -> ^h.Sse
   (let [stream (alloc h.Sse context.temp_allocator)]
-    (h.sse_init stream res {on-error: on-error})
+    (h.sse_init stream res :on-error on-error)
     (h.sse_start stream)
     stream))
 
@@ -91,7 +91,7 @@ sse_event_async :: proc(stream: ^h.Sse, event, data: string) {
 
   (set! stream.timeout_op
         (nbio.timeout_poly2 delay stream cb __kvist_http_sse_on_timeout
-                            {l: stream.r._conn.owning_thread.event_loop})))
+                            :l stream.r._conn.owning_thread.event_loop)))
 
 (defn- __kvist_http_sse_closed [stream: ^h.Sse] -> bool
   (> stream.state .Ending))
@@ -171,13 +171,13 @@ sse_event_async :: proc(stream: ^h.Sse, event, data: string) {
   "Send a data-only SSE event on `stream`."
   [stream data]
   (quasiquote
-    (h.sse_event (unquote stream) (h.Sse_Event { data: (unquote data) }))))
+    (h.sse_event (unquote stream) (h.Sse_Event :data (unquote data)))))
 
 (defmacro send-event!
   "Send a named SSE event with `event` and `data`."
   [stream event data]
   (quasiquote
-    (h.sse_event (unquote stream) (h.Sse_Event { event: (unquote event) data: (unquote data) }))))
+    (h.sse_event (unquote stream) (h.Sse_Event :event (unquote event) :data (unquote data)))))
 
 (defmacro send-event-async!
   "Queue a named SSE event onto the stream's owning event loop.
@@ -192,13 +192,13 @@ sse_event_async :: proc(stream: ^h.Sse, event, data: string) {
   "Send an SSE comment frame."
   [stream text]
   (quasiquote
-    (h.sse_event (unquote stream) (h.Sse_Event { comment: (unquote text) }))))
+    (h.sse_event (unquote stream) (h.Sse_Event :comment (unquote text)))))
 
 (defmacro retry!
   "Send an SSE retry interval in milliseconds."
   [stream milliseconds]
   (quasiquote
-    (h.sse_event (unquote stream) (h.Sse_Event { retry: (unquote milliseconds) }))))
+    (h.sse_event (unquote stream) (h.Sse_Event :retry (unquote milliseconds)))))
 
 (defmacro schedule-timeout!
   "Schedule `callback` to run after `delay` for `stream`.

@@ -6,19 +6,19 @@
 
 (def JSON-STATIC: string "{\"message\":\"pong\",\"count\":1,\"ok\":true,\"service\":\"kvist-http\",\"env\":\"bench\",\"user\":\"load-test\",\"stats\":{\"latency_ms\":12,\"cpu_pct\":37,\"mem_mb\":128},\"meta\":{\"request_id\":\"req-123456789\",\"build\":\"2026.06.01\",\"region\":\"eu-north-1\"},\"note\":\"Longer JSON payload for rough comparison.\"}")
 
-(defstruct Json-Stats {
+(defstruct Json-Stats [
   latency_ms: int
   cpu_pct: int
   mem_mb: int
-})
+])
 
-(defstruct Json-Meta {
+(defstruct Json-Meta [
   request_id: string
   build: string
   region: string
-})
+])
 
-(defstruct Json-Reply {
+(defstruct Json-Reply [
   message: string
   count: int
   ok: bool
@@ -28,7 +28,7 @@
   stats: Json-Stats
   meta: Json-Meta
   note: string
-})
+])
 
 (sse.on-error ignore-err [stream err])
 
@@ -55,17 +55,17 @@
         (http.respond-json
           res
           (Json-Reply
-            {message: "pong"
-             count: 1
-             ok: true
-             service: "kvist-http"
-             env: "bench"
-             user: "load-test"
-             stats: (Json-Stats {latency_ms: 12 cpu_pct: 37 mem_mb: 128})
-             meta: (Json-Meta {request_id: "req-123456789"
-                               build: "2026.06.01"
-                               region: "eu-north-1"})
-             note: "Longer JSON payload for rough comparison."})))
+            :message "pong"
+             :count 1
+             :ok true
+             :service "kvist-http"
+             :env "bench"
+             :user "load-test"
+             :stats (Json-Stats :latency_ms 12 :cpu_pct 37 :mem_mb 128)
+             :meta (Json-Meta :request_id "req-123456789"
+                               :build "2026.06.01"
+                               :region "eu-north-1")
+             :note "Longer JSON payload for rough comparison.")))
 
       (GET "/plain" [req res]
         (http.respond-plain res JSON-STATIC))

@@ -3,7 +3,7 @@
 (import strings "core:strings")
 
 (defn- patch-elements-helper [stream: ^h.Sse, selector: string, mode: string, elements: string, use-view-transition: bool]
-  (let [b (strings.Builder {})]
+  (let [b (strings.Builder [])]
     (defer (strings.builder_destroy (addr b)))
     (when (> (count selector) 0)
       (strings.write_string (addr b) "selector ")
@@ -17,18 +17,18 @@
       (strings.write_string (addr b) "useViewTransition true\n"))
     (strings.write_string (addr b) "elements ")
     (strings.write_string (addr b) elements)
-    (h.sse_event stream (h.Sse_Event {event: "datastar-patch-elements"
-                                      data: (strings.to_string b)}))))
+    (h.sse_event stream (h.Sse_Event :event "datastar-patch-elements"
+                                      :data (strings.to_string b)))))
 
 (defn- patch-signals-helper [stream: ^h.Sse, signals: string, only-if-missing: bool]
-  (let [b (strings.Builder {})]
+  (let [b (strings.Builder [])]
     (defer (strings.builder_destroy (addr b)))
     (when only-if-missing
       (strings.write_string (addr b) "onlyIfMissing true\n"))
     (strings.write_string (addr b) "signals ")
     (strings.write_string (addr b) signals)
-    (h.sse_event stream (h.Sse_Event {event: "datastar-patch-signals"
-                                      data: (strings.to_string b)}))))
+    (h.sse_event stream (h.Sse_Event :event "datastar-patch-signals"
+                                      :data (strings.to_string b)))))
 
 (defn- execute-script-helper [stream: ^h.Sse, script: string]
   (patch-elements-helper stream "body" "append" (strings.concatenate ([]string ["<script>" script "</script>"])) false))

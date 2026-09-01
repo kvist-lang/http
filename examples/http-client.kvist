@@ -6,9 +6,9 @@
 (package main)
 (import client "../client")
 
-(defstruct Greeting {
+(defstruct Greeting [
   message: string
-})
+])
 
 (defn fetch-ping [] -> bool
   (let [[res err] (client.get "http://127.0.0.1:6969/ping")]
@@ -22,7 +22,7 @@
   (client.with-request [req .Post]
     (client.set-header! req "x-api-key" "demo")
     (client.add-cookie! req "session" "abc123")
-    (let [json-err (client.with-json req (Greeting {message: "hello"}))]
+    (let [json-err (client.with-json req (Greeting :message "hello"))]
       (if (!= json-err nil)
         false
         (let [[res err] (client.request req "http://127.0.0.1:6969/hello")]

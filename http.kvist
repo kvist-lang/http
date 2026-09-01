@@ -9,7 +9,7 @@
 (def Body-Error h.Body_Error)
 (def Body-Callback h.Body_Callback)
 
-(defn- respond-file-content-text [res: ^h.Response, path: string, content: string, status: h.Status = .OK]
+(defn- respond-file-content-text [res: ^h.Response, path: string, content: string, status: h.Status :default .OK]
   (h.respond_file_content res path (transmute []byte content) status))
 
 (defn- handle-ptr [hnd: ^h.Handler, req: ^h.Request, res: ^h.Response]
@@ -25,7 +25,7 @@
   `http.router-destroy!` when it is no longer needed. `http.with-router` is the
   usual scoped form for this."
   [] -> h.Router
-  (let [router (h.Router {})]
+  (let [router (h.Router [])]
     (h.router_init (addr router))
     router))
 
@@ -44,7 +44,7 @@
   The server starts unbound and is intended to be passed to `http.serve!`,
   `http.listen!`, or the combined listen-and-serve helpers."
   [] -> h.Server
-  (h.Server {}))
+  (h.Server []))
 
 (defn server-set-thread-count!
   "Set the HTTP event-loop thread count before listen/serve starts. Stateful
@@ -78,7 +78,7 @@
   (quasiquote
     (h.listen
       (addr (unquote server))
-      (net.Endpoint {address: net.IP4_Loopback port: (unquote port)}))))
+      (net.Endpoint :address net.IP4_Loopback :port (unquote port)))))
 
 (defmacro handler
   "Create an HTTP handler from request and response bindings.
@@ -222,7 +222,7 @@
     (h.listen_and_serve
       (addr (unquote server))
       (router-handler (unquote router))
-      (net.Endpoint {address: net.IP4_Loopback port: (unquote port)}))))
+      (net.Endpoint :address net.IP4_Loopback :port (unquote port)))))
 
 (defmacro listen-and-serve-handler!
   "Bind `server` to loopback `port` and serve `handler`."
@@ -231,7 +231,7 @@
     (h.listen_and_serve
       (addr (unquote server))
       (unquote handler)
-      (net.Endpoint {address: net.IP4_Loopback port: (unquote port)}))))
+      (net.Endpoint :address net.IP4_Loopback :port (unquote port)))))
 
 (defmacro with-router
   "Evaluate `body` with a scoped router binding.
@@ -736,7 +736,7 @@
   (quasiquote
     (append
       (addr (deref (unquote res)).cookies)
-      (h.Cookie {name: (unquote name) value: (unquote value)}))))
+      (h.Cookie :name (unquote name) :value (unquote value)))))
 
 (defn new-rate-limit-opts
   "Create rate-limit options.
@@ -744,7 +744,7 @@
   `window` is the time window and `max` is the maximum request count accepted
   within that window by the vendor rate limiter."
   [window: time.Duration max: int] -> h.Rate_Limit_Opts
-  (h.Rate_Limit_Opts {window: window max: max}))
+  (h.Rate_Limit_Opts :window window :max max))
 
 (defn new-rate-limit-data
   "Create empty rate-limit state.
@@ -752,7 +752,7 @@
   The returned value owns vendor rate-limit state and should be destroyed with
   `http.rate-limit-destroy!` when no longer needed."
   [] -> h.Rate_Limit_Data
-  (h.Rate_Limit_Data {}))
+  (h.Rate_Limit_Data []))
 
 (defmacro rate-limit-destroy!
   "Destroy rate-limit state created by `http.new-rate-limit-data`."
