@@ -1,6 +1,3 @@
-;; Copyright (c) Andreas Flakstad and Kvist contributors
-;; SPDX-License-Identifier: MIT
-
 (package client)
 (import h "../deps/odin-http")
 (import hc "../deps/odin-http/client")

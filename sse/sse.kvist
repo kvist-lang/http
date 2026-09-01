@@ -1,6 +1,3 @@
-;; Copyright (c) Andreas Flakstad and Kvist contributors
-;; SPDX-License-Identifier: MIT
-
 (package sse)
 (import h "../deps/odin-http")
 (import mem "core:mem")

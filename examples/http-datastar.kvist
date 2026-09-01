@@ -1,6 +1,3 @@
-;; Copyright (c) Andreas Flakstad and Kvist contributors
-;; SPDX-License-Identifier: MIT
-
 ;; Thin Datastar event helpers over the HTTP SSE subpackage.
 (package main)
 (import http "..")
