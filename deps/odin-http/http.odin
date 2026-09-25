@@ -174,7 +174,7 @@ header_parse :: proc(headers: ^Headers, line: string, allocator := context.temp_
 
 	value := strings.trim_space(line[colon + 1:])
 	tmp_key := sanitize_key(headers^, line[:colon])
-	defer if !ok { delete(tmp_key, allocator) }
+	defer if !ok { sanitized_key_destroy(headers^, tmp_key) }
 
 	// RFC 7230 5.4: Server MUST respond with 400 to any request
 	// with multiple "Host" header fields.
@@ -202,7 +202,7 @@ header_parse :: proc(headers: ^Headers, line: string, allocator := context.temp_
 		value = strings.clone(value, allocator)
 	} else {
 		value = strings.concatenate({value_ptr^, ", ", value}, allocator)
-		delete(tmp_key, allocator)
+		sanitized_key_destroy(headers^, tmp_key)
 		delete(value_ptr^, allocator)
 	}
 	key = key_ptr^

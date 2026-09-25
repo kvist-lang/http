@@ -1,6 +1,6 @@
 package http
 
-import "core:strings"
+import "core:mem"
 
 // A case-insensitive ASCII map for storing headers.
 Headers :: struct {
@@ -10,6 +10,11 @@ Headers :: struct {
 
 headers_init :: proc(h: ^Headers, allocator := context.temp_allocator) {
 	h._kv.allocator = allocator
+}
+
+@(private="file")
+headers_allocator :: #force_inline proc(h: Headers) -> mem.Allocator {
+	return h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
 }
 
 headers_count :: #force_inline proc(h: Headers) -> int {
@@ -24,12 +29,7 @@ headers_set :: proc(h: ^Headers, k: string, v: string, loc := #caller_location) 
 		panic("these headers are readonly, did you accidentally try to set a header on the request?", loc)
 	}
 
-	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
-	l := sanitize_key(h^, k)
-	key_ptr, value_ptr, just_inserted, _ := map_entry(&h._kv, l)
-	if !just_inserted {
-		delete(l, allocator)
-	}
+	key_ptr, value_ptr, _ := headers_entry(h, k, loc)
 	value_ptr^ = v
 	return key_ptr^
 }
@@ -43,9 +43,8 @@ headers_set_unsafe :: #force_inline proc(h: ^Headers, k: string, v: string, loc 
 }
 
 headers_get :: proc(h: Headers, k: string) -> (string, bool) #optional_ok {
-	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
 	l := sanitize_key(h, k)
-	defer delete(l, allocator)
+	defer sanitized_key_destroy(h, l)
 	return h._kv[l]
 }
 
@@ -58,9 +57,14 @@ headers_get_unsafe :: #force_inline proc(h: Headers, k: string) -> (string, bool
 
 headers_entry :: proc(h: ^Headers, k: string, loc := #caller_location) -> (key_ptr: ^string, value_ptr: ^string, just_inserted: bool) {
 	assert(!h.readonly, "these headers are readonly, did you accidentally try to set a header on the request?", loc)
-	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
+	allocator := headers_allocator(h^)
 	l := sanitize_key(h^, k)
-	key_ptr, value_ptr, just_inserted, _ = map_entry(&h._kv, l)
+	entry_err: mem.Allocator_Error
+	key_ptr, value_ptr, just_inserted, entry_err = map_entry(&h._kv, l)
+	if entry_err != nil {
+		delete(l, allocator)
+		panic("failed to allocate header entry", loc)
+	}
 	if !just_inserted {
 		delete(l, allocator)
 	}
@@ -74,9 +78,8 @@ headers_entry_unsafe :: #force_inline proc(h: ^Headers, k: string, loc := #calle
 }
 
 headers_has :: proc(h: Headers, k: string) -> bool {
-	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
 	l := sanitize_key(h, k)
-	defer delete(l, allocator)
+	defer sanitized_key_destroy(h, l)
 	return l in h._kv
 }
 
@@ -88,9 +91,8 @@ headers_has_unsafe :: #force_inline proc(h: Headers, k: string) -> bool {
 }
 
 headers_delete :: proc(h: ^Headers, k: string) -> (deleted_key: string, deleted_value: string) {
-	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
 	l := sanitize_key(h^, k)
-	defer delete(l, allocator)
+	defer sanitized_key_destroy(h^, l)
 	return delete_key(&h._kv, l)
 }
 
@@ -125,47 +127,35 @@ Escapes any newlines and converts ASCII to lowercase.
 */
 @(private="package")
 sanitize_key :: proc(h: Headers, k: string) -> string {
-	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
-
-	// general +4 in rare case of newlines, so we might not need to reallocate.
-	b := strings.builder_make(0, len(k)+4, allocator)
-	for c in k {
-		switch c {
-		case 'A'..='Z': strings.write_rune(&b, c + 32)
-		case '\n':      strings.write_string(&b, "\\n")
-		case:           strings.write_rune(&b, c)
+	sanitized_len := len(k)
+	for c in transmute([]byte)k {
+		if c == '\n' {
+			sanitized_len += 1
 		}
 	}
-	return strings.to_string(b)
 
-	// NOTE: implementation that only allocates if needed, but we use arena's anyway so just allocating
-	// some space should be about as fast?
-	//
-	// b: strings.Builder = ---
-	// i: int
-	// for c in v {
-	// 	if c == '\n' || (c >= 'A' && c <= 'Z') {
-	// 		b = strings.builder_make(0, len(v)+4, allocator)
-	// 		strings.write_string(&b, v[:i])
-	// 		alloc = true
-	// 		break
-	// 	}
-	// 	i+=1
-	// }
-	//
-	// if !alloc {
-	// 	return v, false
-	// }
-	//
-	// for c in v[i:] {
-	//  switch c {
-	//  case 'A'..='Z': strings.write_rune(&b, c + 32)
-	//  case '\n':      strings.write_string(&b, "\\n")
-	//  case:           strings.write_rune(&b, c)
-	//  }
-	// }
-	//
-	// return strings.to_string(b), true
+	b := make([]byte, sanitized_len, headers_allocator(h))
+	i := 0
+	for c in transmute([]byte)k {
+		switch c {
+		case 'A'..='Z':
+			b[i] = c + 32
+			i += 1
+		case '\n':
+			b[i] = '\\'
+			b[i + 1] = 'n'
+			i += 2
+		case:
+			b[i] = c
+			i += 1
+		}
+	}
+	return string(b)
+}
+
+@(private="package")
+sanitized_key_destroy :: #force_inline proc(h: Headers, k: string) {
+	delete(k, headers_allocator(h))
 }
 
 import "core:testing"
@@ -176,16 +166,16 @@ test_headers_transient_sanitized_keys_are_freed :: proc(t: ^testing.T) {
 	headers_init(&h, context.allocator)
 	defer delete(h._kv)
 
-	stored_key := headers_set(&h, "Content-Type", "application/json")
-	testing.expect_value(t, stored_key, "content-type")
+	stored_key := headers_set(&h, "Content\nType", "application/json")
+	testing.expect_value(t, stored_key, "content\\ntype")
 
-	value, found := headers_get(h, "CONTENT-Type")
+	value, found := headers_get(h, "CONTENT\nType")
 	testing.expect(t, found)
 	testing.expect_value(t, value, "application/json")
-	testing.expect(t, headers_has(h, "Content-TYPE"))
+	testing.expect(t, headers_has(h, "Content\nTYPE"))
 
-	deleted_key, deleted_value := headers_delete(&h, "CONTENT-TYPE")
-	testing.expect_value(t, deleted_key, "content-type")
+	deleted_key, deleted_value := headers_delete(&h, "CONTENT\nTYPE")
+	testing.expect_value(t, deleted_key, "content\\ntype")
 	testing.expect_value(t, deleted_value, "application/json")
 	delete(deleted_key, context.allocator)
 }
