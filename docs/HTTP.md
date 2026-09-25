@@ -151,10 +151,14 @@ Response helpers stay close to the vendor API:
 (http.respond-json res value)
 (http.respond-file res "public/index.html")
 (http.respond-file-content res "index.html" content)
+(http.respond-content
+  res xml "application/xml; charset=utf-8" .OK)
 ```
 
 Use `http.respond-html` with strings you already trust or rendered with
-the separate HTML package; it sends the HTML as provided.
+the separate HTML package; it sends the HTML as provided. Use
+`http.respond-content` when the body is already serialized and its content type
+must be supplied explicitly.
 
 ## Handlers And Middleware
 
@@ -204,6 +208,27 @@ Rate limiting is middleware-shaped too:
   (defer (http.rate-limit-destroy! data))
   (http.rate-limit data next opts))
 ```
+
+To customize limited responses, pass a callback and optional `rawptr` user
+data. Request and response parameters use the public wrapper types:
+
+```clojure
+(defn on-limit
+  [req: ^http.Request, res: ^http.Response, user-data: rawptr]
+  (discard req)
+  (let [message (transmute ^string user-data)]
+    (http.respond-content
+      res message^ "application/xml; charset=utf-8" .Too_Many_Requests)))
+
+(let [message "<error>limited</error>"
+      opts (http.new-rate-limit-opts
+             time.Second 5 on-limit (rawptr (addr message)))
+      data (http.new-rate-limit-data)]
+  (defer (http.rate-limit-destroy! data))
+  (http.rate-limit data next opts))
+```
+
+The user-data argument may be omitted when the callback does not need it.
 
 ## Headers, Status, And Request Lines
 

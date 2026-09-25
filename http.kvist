@@ -16,6 +16,7 @@
 (def Handler h.Handler)
 (def Handler-Callback h.Handle_Proc)
 (def Handler-Proc h.Handler_Proc)
+(def Server h.Server)
 (def Body-Error h.Body_Error)
 (def Body-Callback h.Body_Callback)
 
@@ -853,6 +854,14 @@
   [res: ^Response, status: Status]
   (h.respond res status))
 
+(defn respond-content
+  "Send an already serialized string body with an explicit content type and status."
+  [res: ^Response, body: string, content-type: string, status: Status]
+  (h.response_status res status)
+  (h.headers_set_content_type (addr res.headers) content-type)
+  (h.body_set res body)
+  (h.respond res))
+
 (defmacro respond-ok
   "Set status 200 OK and send an empty response."
   [res]
@@ -955,9 +964,21 @@
   "Create rate-limit options.
 
   `window` is the time window and `max` is the maximum request count accepted
-  within that window by the vendor rate limiter."
-  [window: time.Duration max: int] -> h.Rate_Limit_Opts
-  (h.Rate_Limit_Opts :window window :max max))
+  within that window by the vendor rate limiter. When `on-limit` is provided,
+  it receives the request, response, and optional `user-data` whenever the
+  limit is exceeded."
+  [window: time.Duration
+   max: int
+   on-limit: (fn [req: ^Request, res: ^Response, user-data: rawptr]) :default nil
+   user-data: rawptr :default nil] -> h.Rate_Limit_Opts
+  (if (= on-limit nil)
+    (h.Rate_Limit_Opts :window window :max max)
+    (h.Rate_Limit_Opts
+      :window window
+      :max max
+      :on-limit (h.Rate_Limit_On_Limit
+                  :user-data user-data
+                  :on-limit on-limit))))
 
 (defn new-rate-limit-data
   "Create empty rate-limit state.

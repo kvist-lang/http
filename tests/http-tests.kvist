@@ -1,8 +1,39 @@
 (package tests)
+(import fmt "core:fmt")
+(import os "core:os")
+(import chan "core:sync/chan")
+(import thread "core:thread")
+(import time "core:time")
 (import t "kvist:test")
 (import http "..")
+(import client "../client")
 (import session "../session")
 (import sse "../sse")
+
+(defstruct Rate-Limit-Probe [
+  body: string
+])
+
+(defstruct Wrapper-Test-Server [
+  server: http.Server
+  handler: http.Handler
+  port: int
+  ready: (typeid chan.Chan bool)
+])
+
+(defn wrapper-only-on-limit
+  [req: ^http.Request, res: ^http.Response, user-data: rawptr]
+  (discard req)
+  (let [probe (transmute ^Rate-Limit-Probe user-data)]
+    (http.respond-content
+      res probe^.body "application/xml; charset=utf-8" .Too_Many_Requests)))
+
+(defn run-wrapper-test-server [fixture: ^Wrapper-Test-Server]
+  (let [listen-error (http.listen! fixture^.server fixture^.port)]
+    (chan.send fixture^.ready (= listen-error nil))
+    (when (= listen-error nil)
+      (discard
+        (http.serve-handler! fixture^.server fixture^.handler)))))
 
 (defn package-boundary-handler [req: ^http.Request, res: ^http.Response]
   (let [[origin has-origin?] (http.request-header req "origin")
@@ -98,3 +129,77 @@
     (t.is (http.client-error-status? .Bad_Request))
     (t.is (http.server-error-status? .Service_Unavailable))
     (t.is (= (http.method-string .Patch) "PATCH"))))
+
+(t.deftest rate-limit-callback-and-serialized-content-stay-wrapper-only
+  ;; No test import reaches into deps/odin-http. The callback annotations, rate
+  ;; limit configuration, response writing, and assertions all use wrapper APIs.
+  (let [probe (Rate-Limit-Probe :body "<error>limited</error>")
+        opts-default (http.new-rate-limit-opts time.Second 5)
+        opts-without-data
+          (http.new-rate-limit-opts
+            time.Second 0 wrapper-only-on-limit)
+        opts
+          (http.new-rate-limit-opts
+            time.Second 0 wrapper-only-on-limit (rawptr (addr probe)))
+        limiter-data (http.new-rate-limit-data)
+        next
+          (http.handler [_req res]
+            (http.respond-content
+              res "<feed>ready</feed>"
+              "application/xml; charset=utf-8"
+              .Created))
+        limited (http.rate-limit limiter-data next opts)
+        server (http.new-server)
+        port (+ 20000 (% (os.get-pid) 30000))]
+    (discard opts-default)
+    (discard opts-without-data)
+    (defer (http.rate-limit-destroy! limiter-data))
+    (http.server-set-thread-count! (addr server) 1)
+    (let [[ready-ch ready-error]
+            (chan.create (typeid chan.Chan bool) 1 context.allocator)
+          fixture (Wrapper-Test-Server
+                    :server server
+                    :handler limited
+                    :port port
+                    :ready ready-ch)
+          worker
+            (thread.create-and-start-with-poly-data
+              (addr fixture) run-wrapper-test-server)
+          target (fmt.tprintf "http://127.0.0.1:%d/" port)]
+      (defer (chan.destroy ready-ch))
+      (t.is (= ready-error .None))
+      (let [[ready channel-open?] (chan.recv ready-ch)]
+        (t.is channel-open?)
+        (t.is ready))
+
+      (let [[res err] (client.get target)]
+        (t.is (= err nil))
+        (when (= err nil)
+          (defer (client.response-destroy res))
+          (let [[content-type has-content-type?]
+                  (http.headers-get res.headers "content-type")
+                [body allocated body-error] (client.response-body res)]
+            (defer (client.body-destroy body allocated))
+            (t.is (= res.status .Created))
+            (t.is has-content-type?)
+            (t.is (= content-type "application/xml; charset=utf-8"))
+            (t.is (= body-error .None))
+            (t.is (= (type-assert body string) "<feed>ready</feed>")))))
+
+      (let [[res err] (client.get target)]
+        (t.is (= err nil))
+        (when (= err nil)
+          (defer (client.response-destroy res))
+          (let [[content-type has-content-type?]
+                  (http.headers-get res.headers "content-type")
+                [body allocated body-error] (client.response-body res)]
+            (defer (client.body-destroy body allocated))
+            (t.is (= res.status .Too_Many_Requests))
+            (t.is has-content-type?)
+            (t.is (= content-type "application/xml; charset=utf-8"))
+            (t.is (= body-error .None))
+            (t.is (= (type-assert body string) "<error>limited</error>")))))
+
+      (http.shutdown! fixture.server)
+      (thread.join worker)
+      (thread.destroy worker))))
