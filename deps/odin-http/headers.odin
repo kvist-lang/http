@@ -24,9 +24,14 @@ headers_set :: proc(h: ^Headers, k: string, v: string, loc := #caller_location) 
 		panic("these headers are readonly, did you accidentally try to set a header on the request?", loc)
 	}
 
+	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
 	l := sanitize_key(h^, k)
-	h._kv[l] = v
-	return l
+	key_ptr, value_ptr, just_inserted, _ := map_entry(&h._kv, l)
+	if !just_inserted {
+		delete(l, allocator)
+	}
+	value_ptr^ = v
+	return key_ptr^
 }
 
 /*
@@ -38,7 +43,10 @@ headers_set_unsafe :: #force_inline proc(h: ^Headers, k: string, v: string, loc 
 }
 
 headers_get :: proc(h: Headers, k: string) -> (string, bool) #optional_ok {
-	return h._kv[sanitize_key(h, k)]
+	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
+	l := sanitize_key(h, k)
+	defer delete(l, allocator)
+	return h._kv[l]
 }
 
 /*
@@ -50,7 +58,12 @@ headers_get_unsafe :: #force_inline proc(h: Headers, k: string) -> (string, bool
 
 headers_entry :: proc(h: ^Headers, k: string, loc := #caller_location) -> (key_ptr: ^string, value_ptr: ^string, just_inserted: bool) {
 	assert(!h.readonly, "these headers are readonly, did you accidentally try to set a header on the request?", loc)
-	key_ptr, value_ptr, just_inserted, _ = map_entry(&h._kv, sanitize_key(h^, k))
+	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
+	l := sanitize_key(h^, k)
+	key_ptr, value_ptr, just_inserted, _ = map_entry(&h._kv, l)
+	if !just_inserted {
+		delete(l, allocator)
+	}
 	return
 }
 
@@ -61,7 +74,10 @@ headers_entry_unsafe :: #force_inline proc(h: ^Headers, k: string, loc := #calle
 }
 
 headers_has :: proc(h: Headers, k: string) -> bool {
-	return sanitize_key(h, k) in h._kv
+	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
+	l := sanitize_key(h, k)
+	defer delete(l, allocator)
+	return l in h._kv
 }
 
 /*
@@ -72,7 +88,10 @@ headers_has_unsafe :: #force_inline proc(h: Headers, k: string) -> bool {
 }
 
 headers_delete :: proc(h: ^Headers, k: string) -> (deleted_key: string, deleted_value: string) {
-	return delete_key(&h._kv, sanitize_key(h^, k))
+	allocator := h._kv.allocator if h._kv.allocator.procedure != nil else context.temp_allocator
+	l := sanitize_key(h^, k)
+	defer delete(l, allocator)
+	return delete_key(&h._kv, l)
 }
 
 /*
@@ -147,4 +166,47 @@ sanitize_key :: proc(h: Headers, k: string) -> string {
 	// }
 	//
 	// return strings.to_string(b), true
+}
+
+import "core:testing"
+
+@(test)
+test_headers_transient_sanitized_keys_are_freed :: proc(t: ^testing.T) {
+	h: Headers
+	headers_init(&h, context.allocator)
+	defer delete(h._kv)
+
+	stored_key := headers_set(&h, "Content-Type", "application/json")
+	testing.expect_value(t, stored_key, "content-type")
+
+	value, found := headers_get(h, "CONTENT-Type")
+	testing.expect(t, found)
+	testing.expect_value(t, value, "application/json")
+	testing.expect(t, headers_has(h, "Content-TYPE"))
+
+	deleted_key, deleted_value := headers_delete(&h, "CONTENT-TYPE")
+	testing.expect_value(t, deleted_key, "content-type")
+	testing.expect_value(t, deleted_value, "application/json")
+	delete(deleted_key, context.allocator)
+}
+
+@(test)
+test_headers_reused_sanitized_keys_are_freed :: proc(t: ^testing.T) {
+	h: Headers
+	headers_init(&h, context.allocator)
+	defer delete(h._kv)
+
+	first_key := headers_set(&h, "X-Request-ID", "first")
+	second_key := headers_set(&h, "X-REQUEST-ID", "second")
+	testing.expect_value(t, first_key, "x-request-id")
+	testing.expect_value(t, second_key, first_key)
+	testing.expect_value(t, headers_get(h, "x-request-id"), "second")
+
+	key_ptr, value_ptr, just_inserted := headers_entry(&h, "X-Request-ID")
+	testing.expect(t, !just_inserted)
+	testing.expect_value(t, key_ptr^, first_key)
+	testing.expect_value(t, value_ptr^, "second")
+
+	deleted_key, _ := headers_delete(&h, "X-Request-ID")
+	delete(deleted_key, context.allocator)
 }

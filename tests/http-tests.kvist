@@ -177,7 +177,7 @@
         (when (= err nil)
           (defer (client.response-destroy res))
           (let [[content-type has-content-type?]
-                  (http.headers-get res.headers "content-type")
+                  (http.headers-get res.headers "Content-Type")
                 [body allocated body-error] (client.response-body res)]
             (defer (client.body-destroy body allocated))
             (t.is (= res.status .Created))
@@ -191,7 +191,7 @@
         (when (= err nil)
           (defer (client.response-destroy res))
           (let [[content-type has-content-type?]
-                  (http.headers-get res.headers "content-type")
+                  (http.headers-get res.headers "Content-Type")
                 [body allocated body-error] (client.response-body res)]
             (defer (client.body-destroy body allocated))
             (t.is (= res.status .Too_Many_Requests))
