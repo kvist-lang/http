@@ -166,6 +166,17 @@ the separate HTML package; it sends the HTML as provided.
   ...)
 ```
 
+Named callbacks use the wrapper's request and response aliases and can be
+turned into handler values with `http.new-handler`:
+
+```clojure
+(defn health [req: ^http.Request, res: ^http.Response]
+  (http.respond-plain res "ok"))
+
+(let [app (http.new-handler health)]
+  ...)
+```
+
 `http.middleware` wraps a next handler value:
 
 ```clojure
@@ -194,6 +205,33 @@ Rate limiting is middleware-shaped too:
   (http.rate-limit data next opts))
 ```
 
+## Headers, Status, And Request Lines
+
+Request headers are read-only through the server API. Response header helpers
+mutate the response without exposing the vendored header type:
+
+```clojure
+(let [[origin has-origin?] (http.request-header req "origin")]
+  ...)
+
+(http.set-header! res "cache-control" "no-store")
+(http.delete-header! res "x-unused")
+```
+
+For reusable helpers, `http.Headers` and the `http.headers-*` functions expose
+the same case-insensitive behavior. `http.Status`, `http.Method`,
+`http.Requestline`, and `http.Version` are public aliases for type declarations.
+The common request/response operations stay wrapper-level:
+
+```clojure
+(let [line (http.request-line req)
+      method (http.request-method req)]
+  (when (= method .Post)
+    (http.set-status! res .Accepted)))
+
+(http.status-string .Not_Found) ; "404 Not Found"
+```
+
 ## Cookies And Sessions
 
 Use the small cookie helpers for direct request/response work:
@@ -204,6 +242,22 @@ Use the small cookie helpers for direct request/response work:
 
 (http.set-cookie! res "sid" sid)
 ```
+
+Configured cookies can be built without importing the vendor package:
+
+```clojure
+(let [cookie (http.cookie-with-same-site
+               (http.cookie-with-http-only
+                 (http.cookie-with-path
+                   (http.new-cookie "sid" sid)
+                   "/")
+                 true)
+               .Strict)]
+  (http.add-cookie! res cookie))
+```
+
+`http.Cookie` and `http.Cookie-Same-Site` are also exported for annotations and
+field access.
 
 `http/session` gives you a tiny plan/apply flow for cookie sessions and
 CSRF checks:

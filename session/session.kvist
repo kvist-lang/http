@@ -1,5 +1,5 @@
 (package session)
-(import h "../deps/odin-http")
+(import http "..")
 
 (defenum Session-Action
   "Decision produced by `session.plan`.
@@ -26,10 +26,10 @@
   path: string
   secure: bool
   http-only: bool
-  same-site: h.Cookie_Same_Site
+  same-site: http.Cookie-Same-Site
   new-sid: (fn [] -> string)
   csrf-for: (fn [sid: string] -> string)
-  request-csrf: (fn [req: ^h.Request] -> string)
+  request-csrf: (fn [req: ^http.Request] -> string)
 ])
 
 (defstruct Session-Plan
@@ -45,18 +45,26 @@
   set-cookie: bool
 ])
 
-(defn- request-method-line [req: ^h.Request] -> h.Method
-  (let [line (type-assert req.line h.Requestline)]
-    line.method))
-
 (defn- call-new-sid [f: (fn [] -> string)] -> string
   (f))
 
 (defn- call-sid-string [f: (fn [sid: string] -> string), sid: string] -> string
   (f sid))
 
-(defn- call-req-string [f: (fn [req: ^h.Request] -> string), req: ^h.Request] -> string
+(defn- call-req-string [f: (fn [req: ^http.Request] -> string), req: ^http.Request] -> string
   (f req))
+
+(defn- new-plan-cookie
+  [name: string, value: string, opts: Session-Opts, http-only: bool] -> http.Cookie
+  (http.cookie-with-same-site
+    (http.cookie-with-secure
+      (http.cookie-with-http-only
+        (http.cookie-with-path
+          (http.new-cookie name value)
+          opts.path)
+        http-only)
+      opts.secure)
+    opts.same-site))
 
 (defn new-opts
   "Create default session options.
@@ -68,7 +76,7 @@
                 csrf-cookie: string
                 new-sid: (fn [] -> string)
                 csrf-for: (fn [sid: string] -> string)
-                request-csrf: (fn [req: ^h.Request] -> string)] -> Session-Opts
+                request-csrf: (fn [req: ^http.Request] -> string)] -> Session-Opts
   (Session-Opts :session-cookie session-cookie
                  :csrf-cookie csrf-cookie
                  :path "/"
@@ -83,15 +91,15 @@
   "Read the configured session cookie from `req`.
 
   Returns `[value, ok]`, where `ok` is false when the cookie is absent."
-  [req: ^h.Request, opts: Session-Opts] -> [value: string, ok: bool]
-  (h.request_cookie_get req opts.session-cookie))
+  [req: ^http.Request, opts: Session-Opts] -> [value: string, ok: bool]
+  (http.request-cookie req opts.session-cookie))
 
 (defn request-csrf-cookie
   "Read the configured CSRF cookie from `req`.
 
   Returns `[value, ok]`, where `ok` is false when the cookie is absent."
-  [req: ^h.Request, opts: Session-Opts] -> [value: string, ok: bool]
-  (h.request_cookie_get req opts.csrf-cookie))
+  [req: ^http.Request, opts: Session-Opts] -> [value: string, ok: bool]
+  (http.request-cookie req opts.csrf-cookie))
 
 (defn expected-csrf
   "Return the expected CSRF token for session id `sid`."
@@ -108,14 +116,14 @@
   "Return true for HTTP methods treated as safe reads by the session planner.
 
   Currently GET and HEAD are read methods."
-  [method: h.Method] -> bool
+  [method: http.Method] -> bool
   (or (= method .Get)
       (= method .Head)))
 
 (defn request-method
   "Return the HTTP method from request `req`."
-  [req: ^h.Request] -> h.Method
-  (request-method-line req))
+  [req: ^http.Request] -> http.Method
+  (http.request-method req))
 
 (defn plan
   "Plan session and CSRF handling for `req`.
@@ -123,7 +131,7 @@
   Safe read requests may create or refresh cookies. POST requests require the
   submitted CSRF value from `opts.request-csrf` to match the derived token.
   Requests without a valid existing session on non-read methods are rejected."
-  [req: ^h.Request, opts: Session-Opts] -> Session-Plan
+  [req: ^http.Request, opts: Session-Opts] -> Session-Plan
   (let [method (request-method req)]
     (if-let [[sid sid-ok] (request-sid req opts)]
       (let [csrf (expected-csrf sid opts)
@@ -149,32 +157,19 @@
           (Session-Plan :action .Create :sid sid :csrf csrf :set-cookie true))
         (Session-Plan :action .Reject :sid "" :csrf "" :set-cookie false)))))
 
-(defmacro apply-plan!
+(defn apply-plan!
   "Apply cookie writes requested by `plan` to response `res`.
 
   When `plan.set-cookie` is true, this appends both the session cookie and the
   CSRF cookie using fields from `opts`. It does not send the response."
-  [res opts plan]
-  (quasiquote
-    (when (unquote plan).set-cookie
-      (append
-        (addr (deref (unquote res)).cookies)
-        (h.Cookie :name (unquote opts).session-cookie
-                   value: (unquote plan).sid
-                   :path (unquote opts).path
-                   http-only: (unquote opts).http-only
-                   :secure (unquote opts).secure
-                   same-site: (unquote opts).same-site)
-        (h.Cookie :name (unquote opts).csrf-cookie
-                   value: (unquote plan).csrf
-                   :path (unquote opts).path
-                   secure: (unquote opts).secure
-                   :same-site (unquote opts).same-site)))))
+  [res: ^http.Response, opts: Session-Opts, plan: Session-Plan]
+  (when plan.set-cookie
+    (http.add-cookie! res
+      (new-plan-cookie opts.session-cookie plan.sid opts opts.http-only))
+    (http.add-cookie! res
+      (new-plan-cookie opts.csrf-cookie plan.csrf opts false))))
 
-(defmacro reject!
+(defn reject!
   "Respond to `res` with HTTP 403 Forbidden."
-  [res]
-  (quasiquote
-    (do
-      (set! (deref (unquote res)).status .Forbidden)
-      (h.respond (unquote res)))))
+  [res: ^http.Response]
+  (http.respond res .Forbidden))

@@ -1,7 +1,56 @@
 (package tests)
 (import t "kvist:test")
 (import http "..")
+(import session "../session")
 (import sse "../sse")
+
+(defn package-boundary-handler [req: ^http.Request, res: ^http.Response]
+  (let [[origin has-origin?] (http.request-header req "origin")
+        line (http.request-line req)
+        method (http.request-method req)
+        cookie (http.cookie-with-same-site
+                 (http.cookie-with-http-only
+                   (http.cookie-with-path
+                     (http.new-cookie "sid" "abc")
+                     "/")
+                   true)
+                 .Strict)
+        [accept _accept?] (http.headers-get req.headers "accept")
+        [content-type _content-type?] (http.response-header res "content-type")
+        [deleted-key deleted-value] (http.delete-header! res "x-unused")]
+    (discard origin)
+    (discard has-origin?)
+    (discard line)
+    (discard method)
+    (discard (http.headers-count req.headers))
+    (discard accept)
+    (discard (http.headers-has? req.headers "host"))
+    (discard content-type)
+    (discard (http.response-has-header? res "content-type"))
+    (discard (http.set-header! res "x-wrapper" "kvist"))
+    (discard deleted-key)
+    (discard deleted-value)
+    (http.add-cookie! res cookie)
+    (http.set-cookie! res "visited" "yes")
+    (http.set-status! res .OK)
+    (discard (http.response-status res))
+    (discard (http.head-request? req))))
+
+(defn package-boundary-handler-value [] -> http.Handler
+  (http.new-handler package-boundary-handler))
+
+(defn package-boundary-status [] -> http.Status
+  .Accepted)
+
+(defn package-boundary-new-sid [] -> string
+  "sid")
+
+(defn package-boundary-csrf-for [sid: string] -> string
+  sid)
+
+(defn package-boundary-request-csrf [req: ^http.Request] -> string
+  (discard req)
+  "csrf")
 
 (t.deftest constructs-router-and-server
   (let [router (http.new-router)
@@ -13,3 +62,39 @@
     (sse.send-event-async! nil "test" "ignored")
     (http.server-shutdown-on-interrupt! server)
     (t.is true)))
+
+(t.deftest exposes-wrapper-only-http-boundary
+  ;; This test intentionally imports only the Kvist wrapper. In particular, the
+  ;; named callback above must remain compatible with the vendored Handle_Proc
+  ;; accepted by http.new-handler.
+  (let [handler (package-boundary-handler-value)
+        cookie (http.new-cookie "session" "token")
+        configured-cookie (http.cookie-with-same-site
+                            (http.cookie-with-secure
+                              (http.cookie-with-http-only
+                                (http.cookie-with-path cookie "/")
+                                true)
+                              true)
+                            .Strict)
+        session-opts (session.new-opts "sid"
+                                       "csrf"
+                                       package-boundary-new-sid
+                                       package-boundary-csrf-for
+                                       package-boundary-request-csrf)]
+    (discard handler)
+    (discard session-opts)
+    (t.is (= cookie.name "session"))
+    (t.is (= cookie.value "token"))
+    (t.is (= (type-assert configured-cookie.path string) "/"))
+    (t.is configured-cookie.http-only)
+    (t.is configured-cookie.secure)
+    (t.is (= configured-cookie.same-site .Strict))
+    (t.is (= (package-boundary-status) .Accepted))
+    (t.is (= (http.status-string .OK) "200 OK"))
+    (t.is (http.valid-status? .No_Content))
+    (t.is (http.informational-status? .Continue))
+    (t.is (http.success-status? .Created))
+    (t.is (http.redirect-status? .Temporary_Redirect))
+    (t.is (http.client-error-status? .Bad_Request))
+    (t.is (http.server-error-status? .Service_Unavailable))
+    (t.is (= (http.method-string .Patch) "PATCH"))))

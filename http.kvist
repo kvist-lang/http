@@ -5,7 +5,17 @@
 
 (def Request h.Request)
 (def Response h.Response)
+(def Headers h.Headers)
+(def Cookie h.Cookie)
+(def Cookie-Same-Site h.Cookie_Same_Site)
+(def Status h.Status)
+(def Method h.Method)
+(def Version h.Version)
+(def Requestline h.Requestline)
+(def Requestline-Error h.Requestline_Error)
 (def Handler h.Handler)
+(def Handler-Callback h.Handle_Proc)
+(def Handler-Proc h.Handler_Proc)
 (def Body-Error h.Body_Error)
 (def Body-Callback h.Body_Callback)
 
@@ -17,6 +27,209 @@
 
 (defn- handler-next [handler: ^h.Handler] -> ^h.Handler
   (type-assert handler.next ^h.Handler))
+
+(defn new-handler
+  "Create a handler from a named request/response callback.
+
+  The callback may be declared entirely through the wrapper surface as
+  `[req: ^http.Request, res: ^http.Response]`."
+  [callback: (fn [req: ^Request, res: ^Response])] -> Handler
+  (h.handler callback))
+
+(defn headers-count
+  "Return the number of entries in `headers`."
+  [headers: Headers] -> int
+  (h.headers_count headers))
+
+(defn headers-get
+  "Look up `key` case-insensitively in `headers`.
+
+  Returns `[value, ok]`, where `ok` is false when the header is absent."
+  [headers: Headers, key: string] -> [value: string, ok: bool]
+  (h.headers_get headers key))
+
+(defn headers-has?
+  "Return whether `headers` contains `key`, case-insensitively."
+  [headers: Headers, key: string] -> bool
+  (h.headers_has headers key))
+
+(defn headers-set!
+  "Set `key` to `value` in mutable `headers` and return the sanitized key."
+  [headers: ^Headers, key: string, value: string] -> string
+  (h.headers_set headers key value))
+
+(defn headers-delete!
+  "Delete `key` from mutable `headers` and return the removed key/value pair."
+  [headers: ^Headers, key: string] -> [deleted-key: string, deleted-value: string]
+  (h.headers_delete headers key))
+
+(defn request-header
+  "Look up request header `key` case-insensitively.
+
+  Returns `[value, ok]`, where `ok` is false when the header is absent."
+  [req: ^Request, key: string] -> [value: string, ok: bool]
+  (h.headers_get req.headers key))
+
+(defn request-has-header?
+  "Return whether request `req` contains header `key`."
+  [req: ^Request, key: string] -> bool
+  (h.headers_has req.headers key))
+
+(defn response-header
+  "Look up response header `key` case-insensitively."
+  [res: ^Response, key: string] -> [value: string, ok: bool]
+  (h.headers_get res.headers key))
+
+(defn response-has-header?
+  "Return whether response `res` contains header `key`."
+  [res: ^Response, key: string] -> bool
+  (h.headers_has res.headers key))
+
+(defn set-header!
+  "Set response header `key` to `value` and return the sanitized key."
+  [res: ^Response, key: string, value: string] -> string
+  (h.headers_set (addr res.headers) key value))
+
+(defn delete-header!
+  "Delete response header `key` and return the removed key/value pair."
+  [res: ^Response, key: string] -> [deleted-key: string, deleted-value: string]
+  (h.headers_delete (addr res.headers) key))
+
+(defn new-cookie
+  "Create a response cookie with `name` and `value`.
+
+  Use the `http.cookie-with-*` helpers to add optional attributes."
+  [name: string, value: string] -> Cookie
+  (h.Cookie :name name :value value))
+
+(defn cookie-with-domain
+  "Return `cookie` with its Domain attribute set to `domain`."
+  [cookie: Cookie, domain: string] -> Cookie
+  (let [updated cookie]
+    (set! updated.domain domain)
+    updated))
+
+(defn cookie-with-path
+  "Return `cookie` with its Path attribute set to `path`."
+  [cookie: Cookie, path: string] -> Cookie
+  (let [updated cookie]
+    (set! updated.path path)
+    updated))
+
+(defn cookie-with-max-age
+  "Return `cookie` with its Max-Age attribute set to `seconds`."
+  [cookie: Cookie, seconds: int] -> Cookie
+  (let [updated cookie]
+    (set! updated.max-age-secs seconds)
+    updated))
+
+(defn cookie-with-expires
+  "Return `cookie` with its Expires attribute set to `expires`."
+  [cookie: Cookie, expires: time.Time] -> Cookie
+  (let [updated cookie]
+    (set! updated.expires-gmt expires)
+    updated))
+
+(defn cookie-with-http-only
+  "Return `cookie` with its HttpOnly attribute enabled or disabled."
+  [cookie: Cookie, enabled: bool] -> Cookie
+  (let [updated cookie]
+    (set! updated.http-only enabled)
+    updated))
+
+(defn cookie-with-partitioned
+  "Return `cookie` with its Partitioned attribute enabled or disabled."
+  [cookie: Cookie, enabled: bool] -> Cookie
+  (let [updated cookie]
+    (set! updated.partitioned enabled)
+    updated))
+
+(defn cookie-with-secure
+  "Return `cookie` with its Secure attribute enabled or disabled."
+  [cookie: Cookie, enabled: bool] -> Cookie
+  (let [updated cookie]
+    (set! updated.secure enabled)
+    updated))
+
+(defn cookie-with-same-site
+  "Return `cookie` with its SameSite policy set to `same-site`."
+  [cookie: Cookie, same-site: Cookie-Same-Site] -> Cookie
+  (let [updated cookie]
+    (set! updated.same-site same-site)
+    updated))
+
+(defn add-cookie!
+  "Append a configured `cookie` to response `res`."
+  [res: ^Response, cookie: Cookie]
+  (append (addr res.cookies) cookie))
+
+(defn response-status
+  "Return the current HTTP status on response `res`."
+  [res: ^Response] -> Status
+  res.status)
+
+(defn set-status!
+  "Set the HTTP status on response `res`, including after a body was written."
+  [res: ^Response, status: Status]
+  (h.response_status res status))
+
+(defn status-string
+  "Return the numeric code and reason phrase for `status`."
+  [status: Status] -> string
+  (h.status_string status))
+
+(defn valid-status?
+  "Return whether `status` is a recognized HTTP status."
+  [status: Status] -> bool
+  (h.status_valid status))
+
+(defn informational-status?
+  "Return whether `status` is in the 1xx range."
+  [status: Status] -> bool
+  (h.status_is_informational status))
+
+(defn success-status?
+  "Return whether `status` is in the 2xx range."
+  [status: Status] -> bool
+  (h.status_is_success status))
+
+(defn redirect-status?
+  "Return whether `status` is in the 3xx range."
+  [status: Status] -> bool
+  (h.status_is_redirect status))
+
+(defn client-error-status?
+  "Return whether `status` is in the 4xx range."
+  [status: Status] -> bool
+  (h.status_is_client_error status))
+
+(defn server-error-status?
+  "Return whether `status` is in the 5xx range."
+  [status: Status] -> bool
+  (h.status_is_server_error status))
+
+(defn request-line
+  "Return the parsed request line for a server callback request.
+
+  Requests passed to handlers always contain a request line."
+  [req: ^Request] -> Requestline
+  (type-assert req.line h.Requestline))
+
+(defn request-method
+  "Return the HTTP method from a server callback request."
+  [req: ^Request] -> Method
+  (let [line (request-line req)]
+    line.method))
+
+(defn head-request?
+  "Return whether the incoming request was a HEAD request."
+  [req: ^Request] -> bool
+  req.is-head)
+
+(defn method-string
+  "Return the uppercase token for HTTP `method`."
+  [method: Method] -> string
+  (h.method_string method))
 
 (defn new-router
   "Create and initialize a new HTTP router value.
@@ -84,8 +297,9 @@
   "Create an HTTP handler from request and response bindings.
 
   `binding` must contain two names, usually `[req res]`. The body is emitted as a
-  direct Odin handler proc receiving `^h.Request` and `^h.Response`; no runtime
-  adapter allocation is introduced by the macro."
+  direct handler proc receiving `^http.Request` and `^http.Response`; no runtime
+  adapter allocation is introduced by the macro. Use `http.new-handler` when a
+  named callback already exists."
   [binding & body]
   (let [req (first binding)
         res (nth binding 1)
@@ -634,11 +848,10 @@
       (server-shutdown-on-interrupt! server)
       (listen-and-serve! server (unquote router) (unquote port)))))
 
-(defmacro respond
+(defn respond
   "Send an empty response with `status`."
-  [res status]
-  (quasiquote
-    (h.respond (unquote res) (unquote status))))
+  [res: ^Response, status: Status]
+  (h.respond res status))
 
 (defmacro respond-ok
   "Set status 200 OK and send an empty response."
@@ -734,9 +947,9 @@
   This mutates the response cookie array in place."
   [res name value]
   (quasiquote
-    (append
-      (addr (deref (unquote res)).cookies)
-      (h.Cookie :name (unquote name) :value (unquote value)))))
+    (add-cookie!
+      (unquote res)
+      (new-cookie (unquote name) (unquote value)))))
 
 (defn new-rate-limit-opts
   "Create rate-limit options.

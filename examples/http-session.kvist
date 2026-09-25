@@ -1,7 +1,6 @@
 (package main)
 (import http "..")
 (import session "../session")
-(import h "../deps/odin-http")
 
 (defn new-sid [] -> string
   "demo-session")
@@ -9,7 +8,8 @@
 (defn csrf-for [sid: string] -> string
   sid)
 
-(defn request-csrf [req: ^h.Request] -> string
+(defn request-csrf [req: ^http.Request] -> string
+  (discard req)
   "")
 
 (defn main []
