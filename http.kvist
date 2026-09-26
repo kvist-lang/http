@@ -29,6 +29,12 @@
 (defn- handler-next [handler: ^h.Handler] -> ^h.Handler
   (type-assert handler.next ^h.Handler))
 
+(defn- loopback-endpoint [port: int] -> net.Endpoint
+  (let [endpoint (zero net.Endpoint)]
+    (set! endpoint.address net.IP4_Loopback)
+    (set! endpoint.port port)
+    endpoint))
+
 (defn new-handler
   "Create a handler from a named request/response callback.
 
@@ -101,7 +107,10 @@
 
   Use the `http.cookie-with-*` helpers to add optional attributes."
   [name: string, value: string] -> Cookie
-  (h.Cookie :name name :value value))
+  (let [cookie (zero h.Cookie)]
+    (set! cookie.name name)
+    (set! cookie.value value)
+    cookie))
 
 (defn cookie-with-domain
   "Return `cookie` with its Domain attribute set to `domain`."
@@ -292,7 +301,7 @@
   (quasiquote
     (h.listen
       (addr (unquote server))
-      (net.Endpoint :address net.IP4_Loopback :port (unquote port)))))
+      (loopback-endpoint (unquote port)))))
 
 (defmacro handler
   "Create an HTTP handler from request and response bindings.
@@ -437,7 +446,7 @@
     (h.listen_and_serve
       (addr (unquote server))
       (router-handler (unquote router))
-      (net.Endpoint :address net.IP4_Loopback :port (unquote port)))))
+      (loopback-endpoint (unquote port)))))
 
 (defmacro listen-and-serve-handler!
   "Bind `server` to loopback `port` and serve `handler`."
@@ -446,7 +455,7 @@
     (h.listen_and_serve
       (addr (unquote server))
       (unquote handler)
-      (net.Endpoint :address net.IP4_Loopback :port (unquote port)))))
+      (loopback-endpoint (unquote port)))))
 
 (defmacro with-router
   "Evaluate `body` with a scoped router binding.
@@ -971,14 +980,15 @@
    max: int
    on-limit: (fn [req: ^Request, res: ^Response, user-data: rawptr]) :default nil
    user-data: rawptr :default nil] -> h.Rate_Limit_Opts
-  (if (= on-limit nil)
-    (h.Rate_Limit_Opts :window window :max max)
-    (h.Rate_Limit_Opts
-      :window window
-      :max max
-      :on-limit (h.Rate_Limit_On_Limit
-                  :user-data user-data
-                  :on-limit on-limit))))
+  (let [opts (zero h.Rate_Limit_Opts)]
+    (set! opts.window window)
+    (set! opts.max max)
+    (when (!= on-limit nil)
+      (let [callback (zero h.Rate_Limit_On_Limit)]
+        (set! callback.user-data user-data)
+        (set! callback.on-limit on-limit)
+        (set! opts.on-limit callback)))
+    opts))
 
 (defn new-rate-limit-data
   "Create empty rate-limit state.
